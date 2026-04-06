@@ -1,8 +1,8 @@
 ---
-title: "HW 6.3 Drug Abuse Analysis - Validation & Inference"
-subtitle: "April 10, 2026"
-author: Kimberly Williams
-format: pdf
+title: "Houston Heat - Heat Related Illness Prevention"
+subtitle: "April 15, 2026"
+author: Andrea Reed & Kimberly Williams
+format: html
 ---
 
 ```{r}
@@ -25,19 +25,35 @@ list.files("Data/")
 - The `prj` file contains information on the projection
 
 ```{r}
-dat <- st_read("Data/DrugAbuse.shp")  # sf object (actually reads all 4 files in)
+dat <- st_read("Data/HoustonHeat.shp")  # sf object
+
+# Fix the invalid vertices (this solves the "Loop 0" error)
+dat <- st_make_valid(dat)
 ```
 
 ```{r}
 RRdat <- dat |>
   mutate(RR = Count / (Population*(sum(Count)/sum(Population)))) |>
   mutate(log_RR = log(RR))
+head(RRdat)
 ```
 
 ```{r}
-car_model <- spautor(log_RR ~ PctWhite + MedInc + Pct18to34, 
-                         data = RRdat, 
-                         spcov_type="car")
+ggplot(data=RRdat, mapping=aes(fill=RR)) +
+  scale_fill_viridis() +
+  theme_minimal() +
+  geom_sf() +
+  labs(title = "Chloropleth Map of log(Relative Risk)",
+       fill = "log(RR)")
+```
+
+
+```{r}
+model_formula <- RR ~ NOAC + MED_AGE + HispanicPC + BlackPCT + 
+                 under5PCT + over65PCT + povertyPCT + alonePCT + MinTemp
+car_model <- spautor(model_formula,
+                     data = RRdat,
+                     spcov_type="car")
 
 resids = resid(car_model)
 decorr_resid = rstandard(car_model)
@@ -47,12 +63,10 @@ RRdat_fr <- RRdat |>
   mutate(resids = resids, decorr_resid = decorr_resid, fitted = fitted)
 ```
 
-# HW
-
-## 1. Verify the LINE assumptions from your CAR model
+# LINE assumptions from CAR model
 ### Linearity
 ```{r}
-rrlm <- lm(log(RR) ~ PctWhite + MedInc + Pct18to34, data = RRdat)
+rrlm <- lm(model_formula, data = RRdat)
 car::avPlots(rrlm)
 ```
 All plots appear linear with no obvious patterns otherwise, so linearity is met.
