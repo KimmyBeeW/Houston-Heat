@@ -15,21 +15,37 @@ library(viridis)   # colorblind friendly colors
 library(patchwork) # put graphs together
 ```
 
+You have been contracted by the Houston Health Department as a junior data analyst. The city is increasingly concerned about the impact of heat on public health (it's Houston after all) — especially among vulnerable populations. Your team’s mission is to analyze public health data related to **heat related deaths** in Houston and identify the key contributing factors. Your findings will help shape public awareness campaigns and guide local policy decisions.
+
 ## Data
-```{r}
-list.files("Data/")
-```
-- The `dbf` file contains the database
-- The `shp` file contains the figures polygons associated with each observation (e.g. state, county, etc.)
-- The `shx` file indexes the shapes (polygons) to the data
-- The `prj` file contains information on the projection
 
 ```{r}
-dat <- st_read("Data/HoustonHeat.shp")  # sf object
-
-# Fix the invalid vertices (this solves the "Loop 0" error)
-dat <- st_make_valid(dat)
+broken_dat <- st_read("Data/HoustonHeat.shp")  # sf object
+dat <- st_make_valid(broken_dat)
 ```
+
+Variables:
+
+- Geometry - Coordinate info for the corresponding Houston census block groups
+- Count - The number of heat-related illnesses reported last summer
+- Population - The population of the census block
+- NOAC - % of census block with no air conditioning 
+- MED_AGE - Median age of people in census block 
+- HispanicPC - % of Hispanic individuals in block 
+- BlackPCT - % of Black individuals in block 
+- under5PCT - % of individuals under age of 5 in block 
+- over65PCT - % of individuals over age 65 in block 
+- povertyPCT - % of individuals in poverty in block 
+- alonePCT - % of individuals in block who live alone 
+- MinTemp - Average daily minimum temperature last summer
+
+Your objective is to analyze the data to identify contributing factors to heat-related illnesses as well as visualize high-risk areas across the greater Houston area. Your deliverable for this project is a 1-page (8.5x11 sheet) public-facing health flyer for a general audience, with insights or safety tips drawn from your analysis. Your flyer must contain the following:
+
+- A model-based map of high and low risk areas across the city (not just the raw data)
+- A list of factors that (significantly) contribute to increased or decreased risk (note that there are racial factors in here and this is a public-facing flyer so be sensitive and avoid harmful stereotypes)
+- Suggestions on how to stay safe
+
+If you don’t know what a flyer might look like, go to images.google.com and search something like “public health flyer for heat related illness” and you’ll get the idea. Canva is a great place to start with templates. Upload a PDF of flyer to gradescope.
 
 ```{r}
 RRdat <- dat |>
@@ -39,14 +55,13 @@ head(RRdat)
 ```
 
 ```{r}
-ggplot(data=RRdat, mapping=aes(fill=RR)) +
+ggplot(data=RRdat, mapping=aes(fill=log_RR)) +
   scale_fill_viridis() +
   theme_minimal() +
   geom_sf() +
   labs(title = "Chloropleth Map of log(Relative Risk)",
        fill = "log(RR)")
 ```
-
 
 ```{r}
 model_formula <- RR ~ NOAC + MED_AGE + HispanicPC + BlackPCT + 
@@ -64,14 +79,17 @@ RRdat_fr <- RRdat |>
 ```
 
 # LINE assumptions from CAR model
+
 ### Linearity
+
 ```{r}
 rrlm <- lm(model_formula, data = RRdat)
 car::avPlots(rrlm)
 ```
-All plots appear linear with no obvious patterns otherwise, so linearity is met.
+
 
 ### Independence
+
 ```{r}
 moran_test <- RRdat %>%
   st_contiguity() %>% #Extract the neighbors of each observation
@@ -80,11 +98,10 @@ moran_test <- RRdat %>%
                     wt=st_weights(.))
 moran_test
 ```
-With a p-value of 5.681e-06 from the Moran's I test, we reject the null hypothesis that the decorrelated residuals are Independent, and conclude that there is significant evidence of spatial autocorrelation remaining in the decorrelated residuals and the Independence assumption is **not** met. Since the Independence assumption isn't met, the standard errors for our coefficients may be biased, which suggests the spatial weights (or the `spcov_type="car"` specification) might not be fully capturing the spatial structure. 
 
-Just as an FYI, Gemini recommended `spcov_type="sar"` which did have a lower p-val of 0.0001095, still not meeting the Independence assumption, but definitely closer. It also had better Equal Variance (BP p-val of 0.04558) and a pseudo-$R^2$ of 0.5414993 (explaining more than twice as much of the variability), so I'm not sure why we're not using it, but cool to note for future reference!
 
 ### Normality
+
 ```{r}
 ks <- ks.test(decorr_resid, "pnorm", mean=0, sd=1)
 pval <- formatC(ks$p.value, digits = 4)
@@ -102,9 +119,10 @@ hr <- ggplot(data.frame(resids = decorr_resid), aes(x = resids)) +
   theme_minimal()
 hr
 ```
-The decorrelated residuals are normally distributed, and the KS test passes with a p-val of 0.3484. The Normality assumption is met.
+
 
 ### Equal Variance
+
 ```{r}
 bp_test <- lmtest::bptest(
   decorr_resid ~ log_RR,
@@ -123,19 +141,16 @@ fr <- ggplot(data.frame(fitted = fitted, resid = decorr_resid),
   theme_minimal()
 fr
 ```
-The Fitted vs Residuals plot shows a slight sideways hourglass shape, but it may just be because we have so few observations, so even with the BP test value of 0.03204, it's close enough to randomly distributed that we'll continue forward with caution.
 
 
-## 2. Report the model fit from your CAR model
 ```{r}
 pseudoR2(car_model)
 ```
-A pseudo-$R^2$ value of 0.2556946 means that roughly 25.6% of the variability in log(Relative Risk) can be explained by the car model.
 
-## 3. Determine which explanatory variable(s), if any, are significantly associated with `log_RR`.
+A pseudo-$R^2$ value of  means that roughly % of the variability in log(Relative Risk) can be explained by the car model.
+
 ```{r}
 summary(car_model)
 ```
 
-`MedInc` (AKA Median Income) is the only statistically significant explanatory variable associated with `log_RR` (log(Relative Risk)) with a p-value of 0.000217.
 
