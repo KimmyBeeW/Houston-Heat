@@ -1,0 +1,127 @@
+---
+title: "HW 6.3 Drug Abuse Analysis - Validation & Inference"
+subtitle: "April 10, 2026"
+author: Kimberly Williams
+format: pdf
+---
+
+```{r}
+#| output: FALSE
+library(tidyverse)
+library(sf)        # shapefile --> a set of files that work together
+library(sfdep)     # Chloropleth Map and Moran's I
+library(spmodel)   # spautor model
+library(viridis)   # colorblind friendly colors
+library(patchwork) # put graphs together
+```
+
+## Data
+```{r}
+list.files("Data/")
+```
+- The `dbf` file contains the database
+- The `shp` file contains the figures polygons associated with each observation (e.g. state, county, etc.)
+- The `shx` file indexes the shapes (polygons) to the data
+- The `prj` file contains information on the projection
+
+```{r}
+dat <- st_read("Data/DrugAbuse.shp")  # sf object (actually reads all 4 files in)
+```
+
+```{r}
+RRdat <- dat |>
+  mutate(RR = Count / (Population*(sum(Count)/sum(Population)))) |>
+  mutate(log_RR = log(RR))
+```
+
+```{r}
+car_model <- spautor(log_RR ~ PctWhite + MedInc + Pct18to34, 
+                         data = RRdat, 
+                         spcov_type="car")
+
+resids = resid(car_model)
+decorr_resid = rstandard(car_model)
+fitted = fitted.values(car_model)
+
+RRdat_fr <- RRdat |>
+  mutate(resids = resids, decorr_resid = decorr_resid, fitted = fitted)
+```
+
+# HW
+
+## 1. Verify the LINE assumptions from your CAR model
+### Linearity
+```{r}
+rrlm <- lm(log(RR) ~ PctWhite + MedInc + Pct18to34, data = RRdat)
+car::avPlots(rrlm)
+```
+All plots appear linear with no obvious patterns otherwise, so linearity is met.
+
+### Independence
+```{r}
+moran_test <- RRdat %>%
+  st_contiguity() %>% #Extract the neighbors of each observation
+  global_moran_test(x=decorr_resid, #Variable we are looking at
+                    nb=.,
+                    wt=st_weights(.))
+moran_test
+```
+With a p-value of 5.681e-06 from the Moran's I test, we reject the null hypothesis that the decorrelated residuals are Independent, and conclude that there is significant evidence of spatial autocorrelation remaining in the decorrelated residuals and the Independence assumption is **not** met. Since the Independence assumption isn't met, the standard errors for our coefficients may be biased, which suggests the spatial weights (or the `spcov_type="car"` specification) might not be fully capturing the spatial structure. 
+
+Just as an FYI, Gemini recommended `spcov_type="sar"` which did have a lower p-val of 0.0001095, still not meeting the Independence assumption, but definitely closer. It also had better Equal Variance (BP p-val of 0.04558) and a pseudo-$R^2$ of 0.5414993 (explaining more than twice as much of the variability), so I'm not sure why we're not using it, but cool to note for future reference!
+
+### Normality
+```{r}
+ks <- ks.test(decorr_resid, "pnorm", mean=0, sd=1)
+pval <- formatC(ks$p.value, digits = 4)
+
+hr <- ggplot(data.frame(resids = decorr_resid), aes(x = resids)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "orchid",
+                 alpha = 0.7, color = "orchid") +
+  stat_function(fun = dnorm, args = list(mean = mean(decorr_resid), 
+                                         sd = sd(decorr_resid)),
+                linewidth = 0.7, color = "darkred", linetype = "dashed") +
+  labs(title = paste0("Histogram of Decorrelated Residuals", 
+                      "\nKS test p-value: ", pval),
+       x = "Decorrelated Residuals",
+       y = "Density") +
+  theme_minimal()
+hr
+```
+The decorrelated residuals are normally distributed, and the KS test passes with a p-val of 0.3484. The Normality assumption is met.
+
+### Equal Variance
+```{r}
+bp_test <- lmtest::bptest(
+  decorr_resid ~ log_RR,
+  data = RRdat
+)
+bp_pval <- formatC(bp_test$p.value, digits = 4)
+
+fr <- ggplot(data.frame(fitted = fitted, resid = decorr_resid),
+       aes(x = fitted, y = decorr_resid)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values",
+       y = "Residuals",
+       title = paste0("Fitted vs Decorrelated Residuals\n",
+                    "BP Test p-value: ", bp_pval)) +
+  theme_minimal()
+fr
+```
+The Fitted vs Residuals plot shows a slight sideways hourglass shape, but it may just be because we have so few observations, so even with the BP test value of 0.03204, it's close enough to randomly distributed that we'll continue forward with caution.
+
+
+## 2. Report the model fit from your CAR model
+```{r}
+pseudoR2(car_model)
+```
+A pseudo-$R^2$ value of 0.2556946 means that roughly 25.6% of the variability in log(Relative Risk) can be explained by the car model.
+
+## 3. Determine which explanatory variable(s), if any, are significantly associated with `log_RR`.
+```{r}
+summary(car_model)
+```
+
+`MedInc` (AKA Median Income) is the only statistically significant explanatory variable associated with `log_RR` (log(Relative Risk)) with a p-value of 0.000217.
+
