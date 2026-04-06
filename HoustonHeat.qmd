@@ -48,14 +48,25 @@ Your objective is to analyze the data to identify contributing factors to heat-r
 If you don’t know what a flyer might look like, go to images.google.com and search something like “public health flyer for heat related illness” and you’ll get the idea. Canva is a great place to start with templates. Upload a PDF of flyer to gradescope.
 
 ```{r}
-RRdat <- dat |>
+# option 1: filter out blocks without counts or population
+RRdat1 <- dat |>
   mutate(RR = Count / (Population*(sum(Count)/sum(Population)))) |>
+  mutate(log_RR = log(RR)) |>
+  filter(is.finite(log_RR)) # filter out infinitives or NA
+# option 2: filter out places without population, 
+#           and add small constant to account for areas without any heat incidents
+RRdat2 <- dat |>
+  filter(Population > 0) |> # Removes 0 population to avoid division by zero
+  mutate(RR = (Count + 0.1) / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
-head(RRdat)
+
+RRdat <- RRdat2 # determine pick here!!
 ```
+
 
 ```{r}
 ggplot(data=RRdat, mapping=aes(fill=log_RR)) +
+  geom_sf(data = dat, fill = "lightgrey", color = "white") + # Background (all tracts)
   scale_fill_viridis() +
   theme_minimal() +
   geom_sf() +
@@ -98,7 +109,7 @@ moran_test <- RRdat %>%
                     wt=st_weights(.))
 moran_test
 ```
-
+Nice it's independent
 
 ### Normality
 
@@ -119,7 +130,7 @@ hr <- ggplot(data.frame(resids = decorr_resid), aes(x = resids)) +
   theme_minimal()
 hr
 ```
-
+Lol not normal at all
 
 ### Equal Variance
 
@@ -141,13 +152,13 @@ fr <- ggplot(data.frame(fitted = fitted, resid = decorr_resid),
   theme_minimal()
 fr
 ```
-
+Hahaha also super heteroskedastic. Look at that trumpet!
 
 ```{r}
 pseudoR2(car_model)
 ```
 
-A pseudo-$R^2$ value of  means that roughly % of the variability in log(Relative Risk) can be explained by the car model.
+A pseudo-$R^2$ value of 0.04868105 means that roughly 5% of the variability in log(Relative Risk) can be explained by the car model.
 
 ```{r}
 summary(car_model)
