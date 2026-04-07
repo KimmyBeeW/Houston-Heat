@@ -21,7 +21,8 @@ You have been contracted by the Houston Health Department as a junior data analy
 
 ```{r}
 broken_dat <- st_read("Data/HoustonHeat.shp")  # sf object
-dat <- st_make_valid(broken_dat)
+dat <- st_make_valid(broken_dat) 
+clean <- dat |> filter(Population > 0)
 ```
 
 Variables:
@@ -48,19 +49,67 @@ Your objective is to analyze the data to identify contributing factors to heat-r
 If you don’t know what a flyer might look like, go to images.google.com and search something like “public health flyer for heat related illness” and you’ll get the idea. Canva is a great place to start with templates. Upload a PDF of flyer to gradescope.
 
 ```{r}
-# option 1: filter out blocks without counts or population
-RRdat1 <- dat |>
+count0 <- clean |>
+  filter(Count == 0)
+nrow(count0)
+nrow(clean)
+nrow(dat)
+```
+
+## Calculate Relative Risk, and transform for normalcy
+
+```{r}
+# 1: filter out infinitives or NA (blocks without counts)
+RRdat1 <- clean |>
   mutate(RR = Count / (Population*(sum(Count)/sum(Population)))) |>
   mutate(log_RR = log(RR)) |>
-  filter(is.finite(log_RR)) # filter out infinitives or NA
-# option 2: filter out places without population, 
-#           and add small constant to account for areas without any heat incidents
-RRdat2 <- dat |>
-  filter(Population > 0) |> # Removes 0 population to avoid division by zero
-  mutate(RR = (Count + 0.1) / (Population * (sum(Count) / sum(Population)))) |>
+  filter(is.finite(log_RR)) 
+
+# 2: filter out counts first
+RRdat2 <- clean |>
+  filter(Count > 0) |>
+  mutate(RR = Count / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
 
-RRdat <- RRdat2 # determine pick here!!
+# 3: add small constant to account for areas without any heat incidents
+RRdat3 <- clean |>
+  mutate(RR = (Count + 0.5) / (Population * (sum(Count) / sum(Population)))) |>
+  mutate(log_RR = log(RR))
+
+# 4: add constant of 1
+RRdat4 <- clean |>
+  mutate(RR = (Count + 1) / (Population * (sum(Count) / sum(Population)))) |>
+  mutate(log_RR = log(RR))
+
+# 5: add constant of 1, remove MED_AGE to account for multicolinearity (high VIF)
+RRdat5 <- clean |>
+  select(-MED_AGE) |>
+  mutate(RR = (Count + 1) / (Population * (sum(Count) / sum(Population)))) |>
+  mutate(log_RR = log(RR))
+
+RRdat <- RRdat5 # determine pick here!!
+```
+```{r}
+combined_dat <- bind_rows(
+  RRdat1 %>% mutate(Version = "Filter last"),
+  RRdat2 %>% mutate(Version = "Filter first"),
+  RRdat3 %>% mutate(Version = "0.5 Constant"),
+  RRdat4 %>% mutate(Version = "1 Constant"),
+  RRdat5 %>% mutate(Version = "No MED_AGE + 1 Constant")
+)
+
+ggplot(combined_dat, aes(x = log_RR)) +
+  geom_density(aes(color = Version), linewidth = 1) +
+  stat_function(fun = dnorm, args = list(mean = mean(RRdat$log_RR, na.rm = TRUE),
+                                         sd = sd(RRdat$log_RR, na.rm = TRUE)),
+    linetype = "dashed", color = "black", linewidth = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of log(Relative Risk) Calculations",
+    x = "log(Relative Risk)",
+    y = "Density",
+    color = "Calculation Method"
+  )
 ```
 
 
@@ -75,11 +124,11 @@ ggplot(data=RRdat, mapping=aes(fill=log_RR)) +
 ```
 
 ```{r}
-model_formula <- RR ~ NOAC + MED_AGE + HispanicPC + BlackPCT + 
+model_formula <- log_RR ~ NOAC + HispanicPC + BlackPCT + 
                  under5PCT + over65PCT + povertyPCT + alonePCT + MinTemp
 car_model <- spautor(model_formula,
                      data = RRdat,
-                     spcov_type="car")
+                     spcov_type="car") # Conditional Autoregressive
 
 resids = resid(car_model)
 decorr_resid = rstandard(car_model)
@@ -89,10 +138,13 @@ RRdat_fr <- RRdat |>
   mutate(resids = resids, decorr_resid = decorr_resid, fitted = fitted)
 ```
 
+```{r}
+car::vif(lm(model_formula, data = RRdat))
+```
+
 # LINE assumptions from CAR model
 
 ### Linearity
-
 ```{r}
 rrlm <- lm(model_formula, data = RRdat)
 car::avPlots(rrlm)
@@ -152,13 +204,13 @@ fr <- ggplot(data.frame(fitted = fitted, resid = decorr_resid),
   theme_minimal()
 fr
 ```
-Hahaha also super heteroskedastic. Look at that trumpet!
+
 
 ```{r}
 pseudoR2(car_model)
 ```
 
-A pseudo-$R^2$ value of 0.04868105 means that roughly 5% of the variability in log(Relative Risk) can be explained by the car model.
+A pseudo-$R^2$ value of 0.1130247 means that roughly 11.3% of the variability in log(Relative Risk) can be explained by the car model.
 
 ```{r}
 summary(car_model)
