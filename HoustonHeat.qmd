@@ -60,49 +60,64 @@ nrow(dat)
 
 ```{r}
 # 1: filter out infinitives or NA (blocks without counts)
+# R2: 0.09730984
 RRdat1 <- clean |>
   mutate(RR = Count / (Population*(sum(Count)/sum(Population)))) |>
   mutate(log_RR = log(RR)) |>
   filter(is.finite(log_RR)) 
+RRdat1_1 <- dat |> # basically the same thing, # R2: 
+  mutate(RR = if_else(Population == 0 | Count == 0, 0,
+                      Count/(Population*(sum(Count)/sum(Population)))),
+         log_RR = log(RR)) |>
+  filter(is.finite(log_RR))
 
 # 2: filter out counts first
+# R2: 0.09730984
 RRdat2 <- clean |>
   filter(Count > 0) |>
   mutate(RR = Count / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
 
 # 3: add small constant to account for areas without any heat incidents
+# R2: 0.09189094
 RRdat3 <- clean |>
   mutate(RR = (Count + 0.5) / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
 
 # 4: add constant of 1
+# R2: 0.1130247
 RRdat4 <- clean |>
   mutate(RR = (Count + 1) / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
 
-# 5: add constant of 1, remove MED_AGE to account for multicolinearity (high VIF)
+# 5: add constant of 0.9, remove MED_AGE to account for multicolinearity (high VIF)
+# R2: 0.1110624
 RRdat5 <- clean |>
   select(-MED_AGE) |>
-  mutate(RR = (Count + 1) / (Population * (sum(Count) / sum(Population)))) |>
+  mutate(RR = (Count + 0.9) / (Population * (sum(Count) / sum(Population)))) |>
   mutate(log_RR = log(RR))
-
-RRdat <- RRdat5 # determine pick here!!
 ```
+
+```{r}
+RRdat <- RRdat4 # determine pick here!!
+```
+
 ```{r}
 combined_dat <- bind_rows(
   RRdat1 %>% mutate(Version = "Filter last"),
   RRdat2 %>% mutate(Version = "Filter first"),
   RRdat3 %>% mutate(Version = "0.5 Constant"),
   RRdat4 %>% mutate(Version = "1 Constant"),
-  RRdat5 %>% mutate(Version = "No MED_AGE + 1 Constant")
+  RRdat5 %>% mutate(Version = "No MED_AGE + 1 Constant"),
+  RRdat1_1 %>% mutate(Version = "ifelse, constant to RR")
 )
 
 ggplot(combined_dat, aes(x = log_RR)) +
-  geom_density(aes(color = Version), linewidth = 1) +
-  stat_function(fun = dnorm, args = list(mean = mean(RRdat$log_RR, na.rm = TRUE),
-                                         sd = sd(RRdat$log_RR, na.rm = TRUE)),
-    linetype = "dashed", color = "black", linewidth = 0.8) +
+  geom_density(aes(color = Version), linewidth = 1, alpha = 0.5) +
+  stat_function(fun = dnorm, 
+                args = list(mean = mean(RRdat$log_RR, na.rm = TRUE),
+                            sd = sd(RRdat$log_RR, na.rm = TRUE)),
+                linetype = "dashed", color = "black", linewidth = 0.8) +
   theme_minimal() +
   labs(
     title = "Comparison of log(Relative Risk) Calculations",
@@ -182,7 +197,7 @@ hr <- ggplot(data.frame(resids = decorr_resid), aes(x = resids)) +
   theme_minimal()
 hr
 ```
-Lol not normal at all
+3 is normal, 4 is almost normal 0.0014, 5 almost 0.00345
 
 ### Equal Variance
 
