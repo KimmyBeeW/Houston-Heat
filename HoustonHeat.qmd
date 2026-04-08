@@ -244,3 +244,17 @@ summary(car2)
 lmtest::lrtest(car_model, car2)
 ```
 
+```{r}
+# Plotting the model-based risk map
+ggplot(data = RRdat_fr) +
+  geom_sf(data = dat, fill = "lightgrey", color = "white") + # Use a neutral background for census blocks with no data
+  geom_sf(aes(fill = fitted)) + # Map the 'fitted' values to the fill color
+  scale_fill_viridis(option = "magma", direction = -1, name = "Estimated\nRisk Level") +
+  theme_minimal() +
+  labs(
+    title = "Houston Heat: Model-Predicted Relative Risk",
+    subtitle = "Based on housing, age, and temperature factors",
+    caption = "Source: Houston Health Department Analysis"
+  )
+```
+
