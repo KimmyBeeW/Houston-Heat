@@ -131,10 +131,10 @@ ggplot(combined_dat, aes(x = log_RR)) +
 ```{r}
 ggplot(data=RRdat, mapping=aes(fill=log_RR)) +
   geom_sf(data = dat, fill = "lightgrey", color = "white") + # Background (all tracts)
-  scale_fill_viridis() +
+  scale_fill_viridis(option = "magma", direction = -1) +
   theme_minimal() +
   geom_sf() +
-  labs(title = "Chloropleth Map of log(Relative Risk)",
+  labs(title = "Chloropleth Map of Heat Incidents",
        fill = "log(RR)")
 ```
 
@@ -231,4 +231,30 @@ A pseudo-$R^2$ value of 0.1130247 means that roughly 11.3% of the variability in
 summary(car_model)
 ```
 
+```{r}
+# reduced model
+reduced <- log_RR ~ NOAC + under5PCT + over65PCT + MinTemp
+car2 <- spautor(reduced,
+                data = RRdat,
+                spcov_type="car") # Conditional Autoregressive
+summary(car2)
+```
+
+```{r}
+lmtest::lrtest(car_model, car2)
+```
+
+```{r}
+# Plotting the model-based risk map
+ggplot(data = RRdat_fr) +
+  geom_sf(data = dat, fill = "lightgrey", color = "white") + # Use a neutral background for census blocks with no data
+  geom_sf(aes(fill = fitted)) + # Map the 'fitted' values to the fill color
+  scale_fill_viridis(option = "magma", direction = -1, name = "Estimated\nRisk Level") +
+  theme_minimal() +
+  labs(
+    title = "Houston Heat: Model-Predicted Relative Risk",
+    subtitle = "Based on housing, age, and temperature factors",
+    caption = "Source: Houston Health Department Analysis"
+  )
+```
 
