@@ -134,7 +134,7 @@ ggplot(data=RRdat, mapping=aes(fill=log_RR)) +
   scale_fill_viridis(option = "magma", direction = -1) +
   theme_minimal() +
   geom_sf() +
-  labs(title = "Darker areas, Higher Risk",
+  labs(title = "Chloropleth Map of Heat Incidents",
        fill = "log(RR)")
 ```
 
